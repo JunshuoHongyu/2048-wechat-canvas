@@ -74,28 +74,51 @@
         [GameState.AD_PLAYING]: [GameState.PLAYING, GameState.GAME_OVER]
     };
 
+    // ===== 颜色方案（TikTok 糖果色轮） =====
+    // 迁移自 2048_TikTok_Unity BoardRenderer.cs / ScoreDisplay.cs
     const COLORS = {
-        bg: '#F9F6F2',
-        grid: '#BBADA0',
-        empty: '#CDC1B4',
+        // 背景
+        bg: '#FBF7F0',           // 米白（Unity: Color(0.985,0.97,0.94)）
+        grid: '#D4CBE2',         // 淡紫托盘（Unity: Color(0.830,0.797,0.886)）
+        empty: '#E8E3F2',        // 紫白格子（Unity: Color(0.910,0.890,0.950)）
+        // 文字
         text: {
-            dark: '#776E65',
-            light: '#F9F6F2'
+            dark: '#66597A',     // 深紫灰（<2048 方块文字 / 标题，Unity: Color(0.40,0.35,0.48)）
+            light: '#F7F7FA',    // 近白（≥2048 方块文字 / 分数值，Unity: Color(0.97,0.97,0.98)）
+            label: '#F5F5F0',    // 分数框标签（Unity: Color(0.96,0.96,0.94)）
+            brown: '#856E54',    // 深糖棕（弹窗标题，Unity: Color(0.52,0.43,0.33)）
         },
+        // UI 按钮
+        ui: {
+            brown: '#AD8561',       // 焦糖棕（Unity: BtnBrown Color(0.68,0.52,0.38)）
+            orange: '#FAB76B',      // 蜜橘橙（Unity: BtnOrange Color(0.98,0.72,0.42)）
+            orangeBright: '#FFDB94', // 亮蜜橘橙·呼吸上限（Unity: Color(1.00,0.86,0.58)）
+            gray: '#E6DBCE',        // 奶灰·禁用（Unity: BtnGray Color(0.90,0.86,0.81)）
+            scoreBox: '#CCAD8A',    // 浅焦糖·分数框/后悔按钮（Unity: ScoreBoxBrown Color(0.80,0.68,0.54)）
+            soundBg: 'rgba(143, 122, 102, 0.35)', // 声音按钮背景
+            soundIcon: '#544538',   // 声音按钮图标（Unity: Color(0.33,0.27,0.22)）
+            panel: '#FAF7F0',       // 弹窗面板背景（Unity: Color(0.98,0.97,0.94)）
+            overlay: 'rgba(51, 33, 20, 0.55)',     // 难度弹窗遮罩（Unity: Color(0.20,0.13,0.08,0.55)）
+            resultOverlay: 'rgba(232, 227, 242, 0.95)', // 结算遮罩（紫白半透明）
+        },
+        // 方块——糖果色轮：每个数值专属一色（2 粉红 → 65536 深玫红，色相绕满一圈）
         tiles: {
-            2:    { bg: '#EEE4DA', text: '#776E65' },
-            4:    { bg: '#EDE0C8', text: '#776E65' },
-            8:    { bg: '#F2B179', text: '#F9F6F2' },
-            16:   { bg: '#F59563', text: '#F9F6F2' },
-            32:   { bg: '#F67C5F', text: '#F9F6F2' },
-            64:   { bg: '#F65E3B', text: '#F9F6F2' },
-            128:  { bg: '#EDCF72', text: '#F9F6F2' },
-            256:  { bg: '#EDCC61', text: '#F9F6F2' },
-            512:  { bg: '#EDC850', text: '#F9F6F2' },
-            1024: { bg: '#EDC53F', text: '#F9F6F2' },
-            2048: { bg: '#EDC22E', text: '#F9F6F2' },
-            4096: { bg: '#3C3A32', text: '#F9F6F2' },
-            8192: { bg: '#3C3A32', text: '#F9F6F2' }
+            2:     { bg: '#F091AF', text: '#66597A' },  // 粉红      RGB(240,145,175)
+            4:     { bg: '#FFB28C', text: '#66597A' },  // 蜜桃橙    RGB(255,178,140)
+            8:     { bg: '#FACD6E', text: '#66597A' },  // 奶油黄    RGB(250,205,110)
+            16:    { bg: '#F5A352', text: '#66597A' },  // 杏橙      RGB(245,163,82)
+            32:    { bg: '#82C3EB', text: '#66597A' },  // 天蓝      RGB(130,195,235)
+            64:    { bg: '#69A5E1', text: '#66597A' },  // 晴朗蓝    RGB(105,165,225)
+            128:   { bg: '#BEA0DC', text: '#66597A' },  // 淡紫      RGB(190,160,220)
+            256:   { bg: '#9B8CCD', text: '#66597A' },  // 香芋紫    RGB(155,140,205)
+            512:   { bg: '#82D7B9', text: '#66597A' },  // 薄荷绿    RGB(130,215,185)
+            1024:  { bg: '#A5D278', text: '#66597A' },  // 青柠绿    RGB(165,210,120)
+            2048:  { bg: '#E8647D', text: '#F7F7FA' },  // 草莓红    RGB(232,100,125)
+            4096:  { bg: '#8C78C3', text: '#F7F7FA' },  // 葡萄紫    RGB(140,120,195)
+            8192:  { bg: '#5A8CD7', text: '#F7F7FA' },  // 深海蓝    RGB(90,140,215)
+            16384: { bg: '#AA7D50', text: '#F7F7FA' },  // 焦糖棕    RGB(170,125,80)
+            32768: { bg: '#46A5A0', text: '#F7F7FA' },  // 松石青    RGB(70,165,160)
+            65536: { bg: '#D25F91', text: '#F7F7FA' },  // 深玫红    RGB(210,95,145)
         }
     };
 

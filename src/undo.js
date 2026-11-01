@@ -25,7 +25,7 @@
             for (let y = 0; y < n; y++) {
                 grid.push(this.grid[y] ? this.grid[y].slice() : new Array(n).fill(null));
             }
-            return { grid, score: this.score };
+            return { grid, score: this.score, moveCount: this.moveCount };
         },
 
         clearUndoHistory() {
@@ -86,6 +86,7 @@
             // 还原棋盘与分数
             this.grid = target.grid.map(row => row.slice());
             this.score = target.score;
+            this.moveCount = target.moveCount || 0;
             this.clearOverlay();
             this.closeSpecialPanel();
             this.syncTilesWithGrid();
@@ -103,6 +104,8 @@
 
             try { if (wx.vibrateShort) wx.vibrateShort({ type: 'light' }); } catch (e) { }
             this.soundPlay('undo');   // 柔和下滑音
+            // 撤销气雾闪电特效（对齐 TikTok 版 LightningEffect，从后悔按钮飘向步数框）
+            if (typeof this.lightning === 'function') this.lightning();
             this.showHint(`↩ 已回撤 ${k} 步` + (suffix ? ` · ${suffix}` : ''));
             this.trackSpecial('undo', { steps: k, freeLeft: this._undoFreeLeft, score: this.score });
         },
@@ -121,7 +124,7 @@
             ctx.save();
 
             // 背景胶囊
-            ctx.fillStyle = usable ? '#8F7A66' : '#E4DDD4';
+            ctx.fillStyle = usable ? COLORS.ui.scoreBox : COLORS.ui.gray;
             this.roundRect(rect.x, rect.y, rect.w, rect.h, rect.h / 2);
 
             // 主文案

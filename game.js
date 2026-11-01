@@ -18,7 +18,9 @@ const FK = (typeof require === 'function')
         special: require('./src/special.js'),
         ads: require('./src/ads.js'),
         undo: require('./src/undo.js'),
-        sound: require('./src/sound.js')
+        sound: require('./src/sound.js'),
+        effects: require('./src/effects.js'),
+        mascot: require('./src/mascot.js')
     }
     : {
         cfg: window.FK_CONFIG,
@@ -26,7 +28,9 @@ const FK = (typeof require === 'function')
         special: window.FK_SPECIAL,
         ads: window.FK_ADS,
         undo: window.FK_UNDO,
-        sound: window.FK_SOUND
+        sound: window.FK_SOUND,
+        effects: window.FK_EFFECTS,
+        mascot: window.FK_MASCOT
     };
 
 const {
@@ -54,6 +58,7 @@ const Game2048 = (function () {
             this.grid = [];
             this.tiles = [];
             this.score = 0;
+            this.moveCount = 0;
             this.bestScore = 0;
             this._state = GameState.IDLE;       // 打开游戏先展示难度弹框
             this.tileIdCounter = 0;
@@ -117,6 +122,7 @@ const Game2048 = (function () {
             // 数字文本缓存（避免每帧 toString）
             this._scoreLabelCache = { v: -1, s: '0' };
             this._bestLabelCache = { v: -1, s: '0' };
+            this._moveLabelCache = { v: -1, s: '0' };
 
             // 字体/样式缓存
             this._fontCache = new Map();
@@ -185,19 +191,29 @@ const Game2048 = (function () {
             return metrics;
         }
 
-        // 统一交互提示：红色飘字（替代系统黑色 toast）
+        // 统一交互提示：油画对话框气泡（对齐 TikTok 版魔法少女提示语）
+        // 当魔法少女布局不可用时，回退到棋盘上浮动飘字
         // options: { x, y, duration, size } 均可省略
         showHint(text, options) {
             if (!text) return;
             const o = options || {};
             const msg = String(text);
+            const duration = o.duration || 1500;
+
+            // 优先使用魔法少女油画对话框气泡
+            if (this._bubbleLayout && this._girlLayout && this._girlLayout.w > 0) {
+                this.showSpeechBubble(msg, duration);
+                return;
+            }
+
+            // 回退：棋盘上浮动飘字
             const maxW = Math.max(120, this.width - 48);
             // 上浮提示加大一号：下限 16、上限 30
             const size = o.size || Math.max(16, Math.min(30, Math.floor(maxW / Math.max(1, msg.length))));
             const x = o.x != null ? o.x : this.width / 2;
             const y = o.y != null ? o.y : (this.boardY ? this.boardY - 16 : this.height / 2 - 80);
             if (typeof this.pushFloatText === 'function') {
-                this.pushFloatText(msg, x, y, o.duration || 1500, size);
+                this.pushFloatText(msg, x, y, duration, size);
             }
         }
 
@@ -226,6 +242,7 @@ const Game2048 = (function () {
                 console.warn('[调测模式] 已跳过激励视频：复活/特技/回撤奖励直接发放。上线前请将 src/config.js 的 DEBUG_SKIP_AD 改为 false。');
             }
             this.initSound();   // WebAudio 合成音效 + 声音开关状态
+            this.loadMascotImages();  // 猫咪 Logo + 魔法少女图片
             this.loadDifficultySetting();
             this.loadBestScore();
             this.loadSpecialPool();
@@ -279,7 +296,7 @@ const Game2048 = (function () {
 
             // 半透明遮罩
             ctx.save();
-            ctx.fillStyle = 'rgba(35, 28, 24, 0.55)';
+            ctx.fillStyle = COLORS.ui.overlay;
             ctx.fillRect(0, 0, this.width, this.height);
 
             // 圆角面板
@@ -291,7 +308,7 @@ const Game2048 = (function () {
             ctx.shadowColor = 'rgba(0, 0, 0, 0.28)';
             ctx.shadowBlur = 24;
             ctx.shadowOffsetY = 8;
-            ctx.fillStyle = 'rgba(250, 248, 239, 0.98)';
+            ctx.fillStyle = COLORS.ui.panel;
             this.roundRect(panelX, panelY, panelW, panelH, 18);
             ctx.restore();
 
@@ -307,7 +324,7 @@ const Game2048 = (function () {
             ctx.fillText('选择难度', panelX + panelW / 2, panelY + 48 + (1 - anim.t) * rise);
 
             ctx.font = this.getFont('normal', 14);
-            ctx.fillStyle = '#9C8B7B';
+            ctx.fillStyle = COLORS.text.brown;
             ctx.fillText('选择棋盘开始游戏', panelX + panelW / 2, panelY + 78 + (1 - anim.t) * rise);
             ctx.restore();
 
@@ -328,7 +345,7 @@ const Game2048 = (function () {
             for (const btn of this._difficultyButtons) {
                 const r = btn.rect;
                 const isLast = this._lastDifficulty === btn.size;
-                ctx.fillStyle = isLast ? '#F2B179' : '#8F7A66';
+                ctx.fillStyle = isLast ? COLORS.ui.orange : COLORS.ui.brown;
                 this.roundRect(r.x, r.y, r.w, r.h, 12);
 
                 // 主文字（经典 4X4 / 挑战 5X5）：一行，水平居中
@@ -341,7 +358,7 @@ const Game2048 = (function () {
                 if (isLast) {
                     // 上次选择的难度打标：第二行，同样水平居中
                     ctx.font = this.getFont('bold', 12);
-                    ctx.fillStyle = '#5C4A3A';
+                    ctx.fillStyle = COLORS.text.brown;
                     ctx.fillText('上次使用', r.x + r.w / 2, r.y + r.h / 2 + 16);
                 }
             }
@@ -590,6 +607,9 @@ const Game2048 = (function () {
             // 棋盘上的闪烁按钮：正方形，控制在单个格子内
             this.specialButtonSize = Math.max(36, Math.min(66, Math.floor(this.tileSize * 0.8)));
             if (this.specialPending) this.positionPending();
+
+            // 魔法少女 + 猫咪 Logo + 对话框气泡布局
+            this.computeMascotLayout();
         }
 
         bindEvents() {
@@ -722,6 +742,7 @@ const Game2048 = (function () {
             this.grid = Array(n).fill(null).map(() => Array(n).fill(null));
             this.tiles = [];
             this.score = 0;
+            this.moveCount = 0;
             this.setState(GameState.PLAYING);
             this.wonShown = false;
             this.clearOverlay();
@@ -799,8 +820,14 @@ const Game2048 = (function () {
 
             // Apply merge animations using tile ids
             let specialHits = 0;
+            let confettiTriggered = false;
             for (const merge of merges) {
                 if (merge.value === SPECIAL_TRIGGER_VALUE) specialHits++;
+                // 合并 ≥256 触发彩带（对齐 TikTok 版 ConfettiEffect，每次移动只触发一次）
+                if (merge.value >= 256 && !confettiTriggered) {
+                    this.confetti(35);
+                    confettiTriggered = true;
+                }
                 const targetTile = this.tiles.find(t => t.id === merge.targetId);
                 if (targetTile) {
                     targetTile.merged = true;
@@ -821,6 +848,7 @@ const Game2048 = (function () {
                 if (this._undoHistory.length > UNDO_HISTORY_CAP) this._undoHistory.shift();
 
                 this.addScore(scoreGained);
+                this.moveCount++;
                 this.setState(GameState.ANIMATING);
                 this.addRandomTile();
 
@@ -1148,6 +1176,8 @@ const Game2048 = (function () {
                 try {
                     this.updateAnimations(dt);
                     this.updateSpecial(now);
+                    this.updateConfetti(dt);
+                    this.updateLightning(dt);
                     this.render();
                     frameErrors = 0;
                 } catch (err) {
@@ -1195,6 +1225,9 @@ const Game2048 = (function () {
                 this.drawSpecialFlyers(now);
                 this.drawUI();
                 this.drawSpecialPanel();
+                this.drawMagicGirl();          // 魔法少女装饰：UNDO 按钮下方
+                this.updateSpeechBubble(now);  // 对话框气泡动画更新
+                this.drawSpeechBubble(now);    // 油画对话框气泡
 
                 if (this.isState(GameState.WON) && !this.wonShown) {
                     this.showWinDialog();
@@ -1208,12 +1241,16 @@ const Game2048 = (function () {
 
                 // 提示飘字最后绘制：保证在弹窗/遮罩之上仍然可见
                 this.drawSpecialFloatTexts(now);
+
+                // 视觉特效最顶层绘制（彩带 + 气雾闪电）
+                this.drawConfetti();
+                this.drawLightning();
             } catch (err) {
                 console.error('Render error:', err);
                 // 尝试恢复
-                this.ctx.fillStyle = '#FAF8EF';
+                this.ctx.fillStyle = COLORS.bg;
                 this.ctx.fillRect(0, 0, this.width, this.height);
-                this.ctx.fillStyle = '#776E65';
+                this.ctx.fillStyle = COLORS.text.dark;
                 this.ctx.font = this.getFont('normal', 24);
                 this.ctx.textAlign = 'center';
                 this.ctx.fillText('渲染错误，请重启游戏', this.width / 2, this.height / 2);
@@ -1238,7 +1275,7 @@ const Game2048 = (function () {
         }
 
         drawBackground() {
-            this.ctx.fillStyle = '#FAF8EF';
+            this.ctx.fillStyle = COLORS.bg;
             this.ctx.fillRect(0, 0, this.width, this.height);
         }
 
@@ -1275,7 +1312,13 @@ const Game2048 = (function () {
                 this.ctx.fill();
 
                 this.ctx.fillStyle = color.text;
-                const fontSize = Math.max(20, Math.floor(48 * tile.scale * this.tileSize / 100));
+                // 字体大小：对齐 TikTok 版按数值位数自适应（cellSize 比例）
+                let baseFont;
+                if (tile.value < 100) baseFont = this.tileSize * 0.45;
+                else if (tile.value < 1000) baseFont = this.tileSize * 0.35;
+                else if (tile.value < 10000) baseFont = this.tileSize * 0.28;
+                else baseFont = this.tileSize * 0.22;
+                const fontSize = Math.max(16, Math.floor(baseFont * tile.scale));
                 this.ctx.font = this.getFont('bold', fontSize);
                 this.ctx.textAlign = 'center';
                 this.ctx.textBaseline = 'middle';
@@ -1285,14 +1328,15 @@ const Game2048 = (function () {
         }
 
         drawUI() {
-            // 分数组左右均不得超出棋盘边框：贴棋盘右沿排布，窄屏时自动缩窄
-            const boardRight = this.boardX + this.boardSize;
-            const boxW = Math.min(SCORE_BOX_W, Math.floor((this.boardSize - 8) / 2));
-            const gap = Math.max(8, Math.min(24, this.boardSize - boxW * 2));
-            const rightX = boardRight - boxW;
+            // 三栏分数框（对齐 TikTok 版：Score / Best / Moves 等宽排列）
+            const gap = Math.max(8, Math.min(12, Math.floor(this.boardSize * 0.02)));
+            const boxW = Math.min(SCORE_BOX_W, Math.floor((this.boardSize - gap * 2) / 3));
+            const x0 = this.boardX;
 
-            this.drawScoreBox(rightX, this.scoreBoxY, '得分', this.numLabel(this.score, this._scoreLabelCache), boxW);
-            this.drawScoreBox(rightX - boxW - gap, this.scoreBoxY, '最佳', this.numLabel(this.bestScore, this._bestLabelCache), boxW);
+            this.drawScoreBox(x0, this.scoreBoxY, '得分', this.numLabel(this.score, this._scoreLabelCache), boxW);
+            this.drawScoreBox(x0 + boxW + gap, this.scoreBoxY, '最佳', this.numLabel(this.bestScore, this._bestLabelCache), boxW);
+            this.drawScoreBox(x0 + (boxW + gap) * 2, this.scoreBoxY, '步数', this.numLabel(this.moveCount, this._moveLabelCache), boxW);
+            this.drawCatLogo();   // 猫咪 Logo：步数框正上方
             this.drawSpecialPoolBar();
             this.drawUndoButton();  // 与特技池同一行、位于其左侧
             this.drawSoundButton(); // 声音开关：位于「最佳」分数框正上方
@@ -1310,11 +1354,11 @@ const Game2048 = (function () {
         drawScoreBox(x, y, label, value, w) {
             const boxW = w || SCORE_BOX_W;
 
-            this.ctx.fillStyle = COLORS.grid;
+            this.ctx.fillStyle = COLORS.ui.scoreBox;
             this.roundRect(x, y, boxW, SCORE_BOX_H, 6);
             this.ctx.fill();
 
-            this.ctx.fillStyle = '#EEE4DA';
+            this.ctx.fillStyle = COLORS.text.label;
             this.ctx.font = this.getFont('normal', Math.min(14, Math.max(11, Math.floor(boxW * 0.11))));
             this.ctx.textAlign = 'center';
             this.ctx.textBaseline = 'middle';
@@ -1356,8 +1400,8 @@ const Game2048 = (function () {
             this.wonShown = true;
             this.soundPlay('win');
             this._buildOverlay('恭喜获胜!', '达成 2048!', [
-                { text: '继续游戏', color: '#8F7A66', callback: () => { this.wonShown = true; this.setState(GameState.PLAYING); } },
-                { text: '重新开始', color: '#8F7A66', callback: () => { this.newGame(); this.wonShown = false; } }
+                { text: '继续游戏', color: COLORS.ui.brown, callback: () => { this.wonShown = true; this.setState(GameState.PLAYING); } },
+                { text: '重新开始', color: COLORS.ui.brown, callback: () => { this.newGame(); this.wonShown = false; } }
             ]);
         }
 
@@ -1366,8 +1410,8 @@ const Game2048 = (function () {
             this.flushBestScore();
             this.soundPlay('lose');
             this._buildOverlay('游戏结束', '最终得分: ' + this.score, [
-                { text: '重新开始', color: '#F2B179', callback: () => { this.newGame(); } },
-                { text: '看广告复活', color: '#8F7A66', callback: () => { this.showRewardedAd('revive'); } }
+                { text: '重新开始', color: COLORS.ui.orange, callback: () => { this.newGame(); } },
+                { text: '看广告复活', color: COLORS.ui.brown, callback: () => { this.showRewardedAd('revive'); } }
             ]);
         }
 
@@ -1393,7 +1437,7 @@ const Game2048 = (function () {
             const overlay = this._overlay;
             if (!overlay) return;
 
-            this.ctx.fillStyle = 'rgba(238, 228, 218, 0.95)';
+            this.ctx.fillStyle = COLORS.ui.resultOverlay;
             this.ctx.fillRect(0, 0, this.width, this.height);
 
             // 标题 + 副标题：弹出时从下方上浮并淡入
@@ -1469,7 +1513,7 @@ const Game2048 = (function () {
 })();
 
 // ---- 混入功能模块（特技加速 / 广告 / 后悔回撤 / 声音） ----
-Object.assign(Game2048.prototype, FK.special, FK.ads, FK.undo, FK.sound);
+Object.assign(Game2048.prototype, FK.special, FK.ads, FK.undo, FK.sound, FK.effects, FK.mascot);
 
 // 启动游戏
 const canvas = wx.createCanvas();

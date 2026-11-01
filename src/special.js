@@ -566,11 +566,11 @@
             // 有库存时呼吸外发光
             if (active) {
                 ctx.globalAlpha = 0.16 + 0.16 * pulse;
-                ctx.fillStyle = '#F2B179';
+                ctx.fillStyle = COLORS.ui.orange;
                 this.roundRect(rect.x - 4, rect.y - 4, rect.w + 8, rect.h + 8, (rect.h + 8) / 2);
             }
             ctx.globalAlpha = 1;
-            ctx.fillStyle = active ? '#F2B179' : '#E4DDD4';
+            ctx.fillStyle = active ? COLORS.ui.orange : COLORS.ui.gray;
             this.roundRect(rect.x, rect.y, rect.w, rect.h, rect.h / 2);
 
             // 闪电图标（左侧圆底）
@@ -584,7 +584,7 @@
             this.drawBolt(cx, cy, 18, active ? '#FFF7E6' : '#B7ADA2');
 
             // 主文案：直接写「特技池」，在按钮矩形内水平居中，窄条时略缩小字号
-            ctx.fillStyle = active ? '#5C4A3A' : '#9C948B';
+            ctx.fillStyle = active ? COLORS.text.brown : '#9C948B';
             ctx.font = this.getFont('bold', rect.w < 210 ? 16 : 18);
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -678,7 +678,7 @@
 
             this.drawBolt(p.x, p.y - size * 0.10, size * 0.40, '#D9730D');
 
-            ctx.fillStyle = '#5C4A3A';
+            ctx.fillStyle = COLORS.text.brown;
             ctx.font = this.getFont('bold', Math.max(12, Math.round(size * 0.20)));
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
@@ -707,7 +707,7 @@
                 ctx.globalAlpha = 1 - t;
                 ctx.beginPath();
                 ctx.arc(x, y, r, 0, Math.PI * 2);
-                ctx.fillStyle = '#F2B179';
+                ctx.fillStyle = COLORS.ui.orange;
                 ctx.fill();
                 this.drawBolt(x, y, r * 0.95, '#FFF7E6');
                 ctx.restore();
@@ -761,14 +761,14 @@
 
             // 半透明遮罩
             ctx.save();
-            ctx.fillStyle = 'rgba(35, 28, 24, 0.55)';
+            ctx.fillStyle = COLORS.ui.overlay;
             ctx.fillRect(0, 0, this.width, this.height);
 
             // 浮动面板
             ctx.shadowColor = 'rgba(0, 0, 0, 0.28)';
             ctx.shadowBlur = 24;
             ctx.shadowOffsetY = 8;
-            ctx.fillStyle = 'rgba(250, 248, 239, 0.98)';
+            ctx.fillStyle = COLORS.ui.panel;
             this.roundRect(L.panelX, L.panelY, L.panelW, L.panelH, 18);
             ctx.restore();
 
@@ -779,7 +779,7 @@
             const rise = 36;
             ctx.save();
             ctx.globalAlpha = anim.alpha;
-            this.drawBolt(L.panelX + 32, L.panelY + 34, 20, '#F2B179');
+            this.drawBolt(L.panelX + 32, L.panelY + 34, 20, COLORS.ui.orange);
             ctx.fillStyle = COLORS.text.dark;
             ctx.font = this.getFont('bold', 22);
             ctx.textAlign = 'left';
@@ -796,7 +796,7 @@
                 );
             }
 
-            ctx.fillStyle = '#8C7B6B';
+            ctx.fillStyle = COLORS.text.brown;
             ctx.font = this.getFont('bold', 18);
             ctx.textAlign = 'right';
             ctx.fillText(`${count} / ${SPECIAL_CAP}`, L.closeRect.x - 8, L.panelY + 34 + (1 - anim.t) * rise);
@@ -850,7 +850,7 @@
                         // 呼吸描边：先填外圈，再覆盖内圈，形成稳定的 1.5px 边框
                         ctx.save();
                         ctx.globalAlpha = 0.30 + 0.30 * pulse;
-                        ctx.fillStyle = '#F2B179';
+                        ctx.fillStyle = COLORS.ui.orange;
                         this.roundRect(r.x, r.y, r.w, r.h, 12);
                         ctx.restore();
                         ctx.save();

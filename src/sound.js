@@ -16,7 +16,7 @@
         : (global && global.FK_CONFIG) || {};
 
     // 布局依赖：分数组宽度与「分数组/特技池与棋盘」的统一垂直间距
-    const { SCORE_BOX_W, BOARD_ADJACENT_GAP } = C;
+    const { SCORE_BOX_W, BOARD_ADJACENT_GAP, COLORS } = C;
 
     const SoundMixin = {
 
@@ -138,14 +138,9 @@
         getSoundBtnRect() {
             const w = 40, h = 40;
             if (!this.boardSize || !this.scoreBoxY) return { x: 14, y: 14, w, h };
-            // 「最佳」分数框位置：与 game.js drawUI 中的 boxW / gap / bestX 计算保持一致
-            const boardRight = this.boardX + this.boardSize;
-            const boxW = Math.min(SCORE_BOX_W, Math.floor((this.boardSize - 8) / 2));
-            const gap = Math.max(8, Math.min(24, this.boardSize - boxW * 2));
-            const bestX = boardRight - boxW - gap - boxW;
-            // 左边界与「最佳」左边界对齐；与「最佳」的间距 = 「最佳」到棋盘的间距（BOARD_ADJACENT_GAP）
+            // 三栏分数框布局：声音按钮位于「得分」分数框左上方
             return {
-                x: bestX,
+                x: this.boardX,
                 y: this.scoreBoxY - h - BOARD_ADJACENT_GAP,
                 w,
                 h
@@ -163,13 +158,13 @@
             ctx.save();
 
             // 圆形底
-            ctx.fillStyle = on ? 'rgba(143, 122, 102, 0.34)' : 'rgba(143, 122, 102, 0.16)';
+            ctx.fillStyle = on ? COLORS.ui.soundBg : 'rgba(143, 122, 102, 0.16)';
             ctx.beginPath();
             ctx.arc(cx, cy, s * 0.92, 0, Math.PI * 2);
             ctx.fill();
 
             // 喇叭主体：锥形 + 喇叭口
-            ctx.fillStyle = on ? '#5C4A3A' : '#B7ADA2';
+            ctx.fillStyle = on ? COLORS.ui.soundIcon : '#B7ADA2';
             ctx.beginPath();
             ctx.moveTo(cx - s * 0.70, cy - s * 0.28);
             ctx.lineTo(cx - s * 0.25, cy - s * 0.55);
@@ -182,7 +177,7 @@
 
             if (on) {
                 // 声波弧线
-                ctx.strokeStyle = '#5C4A3A';
+                ctx.strokeStyle = COLORS.ui.soundIcon;
                 ctx.lineWidth = 2.2;
                 ctx.lineCap = 'round';
                 ctx.beginPath();
