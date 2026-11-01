@@ -65,7 +65,21 @@
             try {
                 const raw = wx.getStorageSync(SPECIAL_SAVE_KEY);
                 if (!raw) return;
-                const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+                // 兼容两种存储格式：旧格式为纯 JSON 字符串，新格式为 { v, c } 带校验
+                let data;
+                if (typeof raw === 'string') {
+                    // 旧格式：直接解析（迁移时自动补校验）
+                    data = JSON.parse(raw);
+                } else if (raw && typeof raw.v === 'string') {
+                    // 新格式：校验摘要，失败则丢弃（防注入伪造数据）
+                    if (raw.c !== this._specialDigest(raw.v)) {
+                        this.specialPool = [];
+                        return;
+                    }
+                    data = JSON.parse(raw.v);
+                } else {
+                    data = raw;
+                }
                 const list = Array.isArray(data) ? data : (data && Array.isArray(data.items) ? data.items : []);
                 this.specialPool = list
                     .filter(it => it && Number.isFinite(Number(it.id)))
@@ -81,9 +95,25 @@
             }
         }
 
+        , _specialDigest(data) {
+            // 与 bestDigest 类似的 FNV-1a + 混淆盐值
+            var h = 0x811c9dc5;
+            var salt = String.fromCharCode(102, 107, 115, 112, 58, 118, 50, 58);
+            var s = salt + data;
+            for (var i = 0; i < s.length; i++) {
+                h ^= s.charCodeAt(i);
+                h = (h * 0x01000193) >>> 0;
+            }
+            return h.toString(36);
+        }
+
         , saveSpecialPool() {
             try {
-                wx.setStorageSync(SPECIAL_SAVE_KEY, JSON.stringify(this.specialPool));
+                var data = JSON.stringify(this.specialPool);
+                wx.setStorageSync(SPECIAL_SAVE_KEY, {
+                    v: data,
+                    c: this._specialDigest(data)
+                });
             } catch (e) { }
         }
 
@@ -557,21 +587,44 @@
             const count = this.specialPool.length;
             const active = count > 0;
             const now = Date.now();
-            const pulse = 0.5 + 0.5 * Math.sin(now / 320);
             const cx = rect.x + 28;
             const cy = rect.y + rect.h / 2;
 
             ctx.save();
 
-            // 有库存时呼吸外发光
+            // ---- 有库存时呼吸效果：双层脉冲 + 缩放发光 ----
             if (active) {
-                ctx.globalAlpha = 0.16 + 0.16 * pulse;
+                const pulse = 0.5 + 0.5 * Math.sin(now / 380);      // 0→1→0 周期 ~2.4s
+                const pulse2 = 0.5 + 0.5 * Math.sin(now / 380 + Math.PI); // 反相
+
+                // 第一层：外扩波纹圈（从按钮边缘向外扩散 + 淡出）
+                const ringExpand = pulse * 10;                       // 0→10px 扩散
+                const ringAlpha = (1 - pulse) * 0.35;                // 扩散越远越淡
+                if (ringAlpha > 0.01) {
+                    ctx.globalAlpha = ringAlpha;
+                    ctx.strokeStyle = COLORS.ui.orange;
+                    ctx.lineWidth = 2;
+                    this.roundRect(rect.x - 4 - ringExpand, rect.y - 4 - ringExpand,
+                                   rect.w + 8 + ringExpand * 2, rect.h + 8 + ringExpand * 2,
+                                   (rect.h + 8 + ringExpand * 2) / 2);
+                    ctx.stroke();
+                }
+
+                // 第二层：内层柔光（反相呼吸，与波纹互补，保持视觉连续）
+                const glowExpand = pulse2 * 5;
+                ctx.globalAlpha = 0.2 + 0.2 * pulse2;
                 ctx.fillStyle = COLORS.ui.orange;
-                this.roundRect(rect.x - 4, rect.y - 4, rect.w + 8, rect.h + 8, (rect.h + 8) / 2);
+                this.roundRect(rect.x - 4 - glowExpand, rect.y - 4 - glowExpand,
+                               rect.w + 8 + glowExpand * 2, rect.h + 8 + glowExpand * 2,
+                               (rect.h + 8 + glowExpand * 2) / 2);
+                ctx.fill();
             }
+
+            // 按钮主体
             ctx.globalAlpha = 1;
             ctx.fillStyle = active ? COLORS.ui.orange : COLORS.ui.gray;
             this.roundRect(rect.x, rect.y, rect.w, rect.h, rect.h / 2);
+            ctx.fill();
 
             // 闪电图标（左侧圆底）
             ctx.globalAlpha = active ? 0.95 : 0.55;

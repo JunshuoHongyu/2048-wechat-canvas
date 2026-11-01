@@ -32,7 +32,10 @@
          */
         confetti(count) {
             if (!this._confettiPieces) this._confettiPieces = [];
-            const n = count || 35;
+            // 上限保护：超过 200 个粒子时不再添加，防止快速连续合并堆积
+            const CAP = 200;
+            if (this._confettiPieces.length >= CAP) return;
+            const n = Math.min(count || 35, CAP - this._confettiPieces.length);
             const cx = this.width / 2;
             const cy = (this.boardY || this.height / 2) + (this.boardSize || 300) * 0.3;
 
@@ -57,20 +60,22 @@
         updateConfetti(dt) {
             if (!this._confettiPieces || this._confettiPieces.length === 0) return;
             const gravity = 600;  // 向下加速度（canvas y 向下为正）
+            const arr = this._confettiPieces;
+            let writeIdx = 0;
 
-            for (let i = this._confettiPieces.length - 1; i >= 0; i--) {
-                const p = this._confettiPieces[i];
+            for (let i = 0; i < arr.length; i++) {
+                const p = arr[i];
                 p.life += dt;
-                if (p.life >= p.maxLife) {
-                    this._confettiPieces.splice(i, 1);
-                    continue;
-                }
+                if (p.life >= p.maxLife) continue;  // 跳过过期粒子
                 p.vx += (Math.random() - 0.5) * 40 * dt;
                 p.vy -= gravity * dt;       // 向上速度递减 → 先升后降
                 p.x += p.vx * dt;
                 p.y -= p.vy * dt;           // vy>0 时 y 减小 = 向上飞
                 p.rot += p.rotSpeed * dt;
+                if (writeIdx !== i) arr[writeIdx] = p;  // 压缩到前段
+                writeIdx++;
             }
+            arr.length = writeIdx;  // 截断尾部（swap-and-pop，避免 splice 的 O(n) 位移）
         },
 
         drawConfetti() {
@@ -231,29 +236,31 @@
                 }
             }
 
-            // 更新光晕
-            for (let i = this._lightningGlows.length - 1; i >= 0; i--) {
-                const g = this._lightningGlows[i];
-                // 尺寸缓动到目标
-                g.size += (g.targetSize - g.size) * Math.min(1, dt * 3);
-                // 淡出阶段：alpha 衰减
-                if (this._lightningPhase >= 1) {
-                    g.alpha *= (1 - dt * 2);
-                    if (g.alpha < 0.01) {
-                        this._lightningGlows.splice(i, 1);
+            // 更新光晕（swap-and-pop 避免 splice）
+            if (this._lightningGlows && this._lightningGlows.length > 0) {
+                const glows = this._lightningGlows;
+                let gw = 0;
+                for (let i = 0; i < glows.length; i++) {
+                    const g = glows[i];
+                    g.size += (g.targetSize - g.size) * Math.min(1, dt * 3);
+                    if (this._lightningPhase >= 1) {
+                        g.alpha *= (1 - dt * 2);
+                        if (g.alpha < 0.01) continue;
                     }
+                    if (gw !== i) glows[gw] = g;
+                    gw++;
                 }
+                glows.length = gw;
             }
 
-            // 更新粒子
+            // 更新粒子（swap-and-pop 避免 splice）
             if (this._lightningParticles) {
-                for (let i = this._lightningParticles.length - 1; i >= 0; i--) {
-                    const p = this._lightningParticles[i];
+                const arr = this._lightningParticles;
+                let pw = 0;
+                for (let i = 0; i < arr.length; i++) {
+                    const p = arr[i];
                     p.life += dt;
-                    if (p.life >= p.maxLife) {
-                        this._lightningParticles.splice(i, 1);
-                        continue;
-                    }
+                    if (p.life >= p.maxLife) continue;
 
                     if (p.type === 'mist') {
                         // 沿方向飘行 + 横向摆动
@@ -282,7 +289,10 @@
                         p.curAlpha = 1 - p.life / p.maxLife;
                         p.curSize = p.size * (1 - 0.7 * p.life / p.maxLife);
                     }
+                    if (pw !== i) arr[pw] = p;
+                    pw++;
                 }
+                arr.length = pw;
             }
         },
 

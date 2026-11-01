@@ -101,12 +101,18 @@ const Game2048 = (function () {
             this._difficultyButtons = null;
             this._lastDifficulty = null;
             this._difficultyDefs = [
-                { label: '经典 4X4', size: 4 },
-                { label: '挑战 5X5', size: 5 }
+                { label: '经典 4X4', size: 4, color: 'rgb(129, 211, 182)' },
+                { label: '挑战 5X5', size: 5, color: 'rgb(254, 187, 154)' }
             ];
 
             // 事件绑定幂等标记（避免 onShow 重入产生幽灵 handler）
             this._eventsBound = false;
+
+            // 销毁标记：destroy() 后 loop() 停止 requestAnimationFrame
+            this._destroyed = false;
+
+            // 复用 merges 数组（processLineWithTiles 每次调用清空重用，避免反复分配）
+            this._mergeReuseArr = [];
 
             // 结算弹窗配置缓存（避免每帧重建数组与闭包）
             this._overlay = null;
@@ -127,6 +133,7 @@ const Game2048 = (function () {
             // 字体/样式缓存
             this._fontCache = new Map();
             this._textMetricsCache = new Map();
+            this._textMetricsCacheMax = 256;  // LRU 上限，防止无限增长
             this._initFontCache();
 
             this.init();
@@ -181,13 +188,22 @@ const Game2048 = (function () {
         get isPlaying() { return this._state === GameState.PLAYING; }
 
         measureText(text, font) {
-            const key = `${font}|${text}`;
+            const key = font + '\0' + text;  // 用 \0 分隔避免歧义
             let metrics = this._textMetricsCache.get(key);
-            if (!metrics) {
-                this.ctx.font = font;
-                metrics = this.ctx.measureText(text);
+            if (metrics) {
+                // LRU: 删除后重新插入，使其成为最新使用
+                this._textMetricsCache.delete(key);
                 this._textMetricsCache.set(key, metrics);
+                return metrics;
             }
+            this.ctx.font = font;
+            metrics = this.ctx.measureText(text);
+            // 超容量时淘汰最旧条目（Map 迭代顺序 = 插入顺序）
+            if (this._textMetricsCache.size >= this._textMetricsCacheMax) {
+                const oldestKey = this._textMetricsCache.keys().next().value;
+                this._textMetricsCache.delete(oldestKey);
+            }
+            this._textMetricsCache.set(key, metrics);
             return metrics;
         }
 
@@ -338,6 +354,7 @@ const Game2048 = (function () {
                 this._difficultyButtons = this._difficultyDefs.map((def, i) => ({
                     label: def.label,
                     size: def.size,
+                    color: def.color,
                     rect: { x: bx, y: i === 0 ? y1 : y2, w: bw, h: bh }
                 }));
             }
@@ -345,8 +362,18 @@ const Game2048 = (function () {
             for (const btn of this._difficultyButtons) {
                 const r = btn.rect;
                 const isLast = this._lastDifficulty === btn.size;
-                ctx.fillStyle = isLast ? COLORS.ui.orange : COLORS.ui.brown;
+                // 按钮主色：经典=糖果绿，挑战=糖果橘
+                ctx.fillStyle = btn.color;
                 this.roundRect(r.x, r.y, r.w, r.h, 12);
+                ctx.fill();
+
+                // 上次选择的难度：加白色描边高亮
+                if (isLast) {
+                    ctx.strokeStyle = '#FFFFFF';
+                    ctx.lineWidth = 3;
+                    this.roundRect(r.x, r.y, r.w, r.h, 12);
+                    ctx.stroke();
+                }
 
                 // 主文字（经典 4X4 / 挑战 5X5）：一行，水平居中
                 ctx.fillStyle = COLORS.text.light;
@@ -367,7 +394,8 @@ const Game2048 = (function () {
         }
 
         bindLifecycle() {
-            wx.onHide(() => {
+            // 存储回调引用以便 destroy() 能解绑（修复匿名函数无法 off 的内存泄漏）
+            this._onHideHandler = () => {
                 this.flushBestScore();
                 this.unbindEvents();
                 // 未入池的闪烁机会在切后台时直接入池，避免数据丢失
@@ -381,8 +409,8 @@ const Game2048 = (function () {
                 } else if (this._adPurpose) {
                     this.failGeneralAd(this._adPurpose, '');
                 }
-            });
-            wx.onShow(() => {
+            };
+            this._onShowHandler = () => {
                 // 确保动画状态重置，避免卡死
                 if (this.animating) {
                     this.completeAnimationsImmediately();
@@ -402,7 +430,9 @@ const Game2048 = (function () {
                         this.loadRewardedAd();
                     }
                 }
-            });
+            };
+            wx.onHide(this._onHideHandler);
+            wx.onShow(this._onShowHandler);
         }
 
         // 立即完成所有动画，同步状态
@@ -478,10 +508,13 @@ const Game2048 = (function () {
             setTimeout(() => this.loadRewardedAd(), 2000);
         }
 
-        // 最高分校验摘要：FNV-1a 快速哈希，防止玩家直接修改本地存储刷分
+        // 最高分校验摘要：FNV-1a + 混淆盐值（提高客户端篡改门槛）
+        // 注意：纯客户端校验无法完全防作弊，有排行榜时应改为服务端结算
         static bestDigest(value) {
             let h = 0x811c9dc5;
-            const s = 'fk2048:v1:' + value;
+            // 盐值用 charCode 拼接，避免明文字符串被直接搜索逆向
+            const salt = String.fromCharCode(102, 107, 50, 48, 52, 56, 58, 118, 50, 58);
+            const s = salt + value;
             for (let i = 0; i < s.length; i++) {
                 h ^= s.charCodeAt(i);
                 h = (h * 0x01000193) >>> 0;
@@ -753,19 +786,28 @@ const Game2048 = (function () {
 
         addRandomTile() {
             const n = this.gridSize;
-            const empty = [];
+            if (!this._emptyCellsBuf) {
+                this._emptyCellsBuf = [];
+                for (let i = 0; i < n * n; i++) this._emptyCellsBuf.push({ x: 0, y: 0 });
+            }
+            let count = 0;
             for (let y = 0; y < n; y++) {
                 for (let x = 0; x < n; x++) {
-                    if (!this.grid[y][x]) empty.push({ x, y });
+                    if (!this.grid[y][x]) {
+                        this._emptyCellsBuf[count].x = x;
+                        this._emptyCellsBuf[count].y = y;
+                        count++;
+                    }
                 }
             }
-            if (empty.length === 0) return;
+            if (count === 0) return;
 
-            const pos = empty[Math.floor(Math.random() * empty.length)];
+            const idx = Math.floor(Math.random() * count);
+            const pos = this._emptyCellsBuf[idx];
             const value = Math.random() < 0.9 ? 2 : 4;
             this.grid[pos.y][pos.x] = value;
             const tile = new FK.Tile(value, pos.x, pos.y);
-            tile.id = `tile_${this.tileIdCounter++}`;
+            tile.id = 'tile_' + this.tileIdCounter++;
             this.tiles.push(tile);
         }
 
@@ -774,8 +816,20 @@ const Game2048 = (function () {
             // 广告加载/播放中禁止棋盘操作，避免奖励结算基于被修改的棋盘状态
             if (this._adPurpose || this._specialAdBusy) return;
 
-            // 回撤快照：仅在本步真正移动后入历史
-            const snapshot = this.takeUndoSnapshot();
+            // 延迟快照：先存标量 + 扁平缓冲区（零堆分配），确认 moved 后才深拷贝
+            // setRow 替换行引用（旧行保留），但 setCol 原地修改（旧行被破坏），
+            // 所以必须在移动处理前保存 grid 值
+            const prevScore = this.score;
+            const prevMoveCount = this.moveCount;
+            if (!this._undoFlatBuf) this._undoFlatBuf = new Array(this.gridSize * this.gridSize);
+            const flatBuf = this._undoFlatBuf;
+            const n0 = this.gridSize;
+            for (let y = 0; y < n0; y++) {
+                const row = this.grid[y];
+                for (let x = 0; x < n0; x++) {
+                    flatBuf[y * n0 + x] = row ? row[x] : null;
+                }
+            }
 
             let moved = false;
             let scoreGained = 0;
@@ -843,6 +897,16 @@ const Game2048 = (function () {
             if (moved) {
                 // 音效：有合并播「叮咚」，纯移动播轻快踏步
                 this.soundPlay(scoreGained > 0 ? 'merge' : 'move');
+                // 确认移动后才从扁平缓冲区深拷贝为完整快照（避免无效移动的 GC）
+                const grid = [];
+                for (let y = 0; y < n; y++) {
+                    const row = new Array(n);
+                    for (let x = 0; x < n; x++) {
+                        row[x] = flatBuf[y * n + x];
+                    }
+                    grid.push(row);
+                }
+                const snapshot = { grid, score: prevScore, moveCount: prevMoveCount };
                 // 入回撤历史（上限裁剪）
                 this._undoHistory.push(snapshot);
                 if (this._undoHistory.length > UNDO_HISTORY_CAP) this._undoHistory.shift();
@@ -861,33 +925,47 @@ const Game2048 = (function () {
 
         getRowWithTiles(y) {
             const row = [];
-            const availableTiles = this.tiles.slice(); // Copy to track used tiles（不用展开符，避免 SWC helper 依赖）
-            for (let x = 0; x < this.gridSize; x++) {
-                if (this.grid[y][x] !== null) {
-                    // 精确位置 + 数值匹配
-                    let tileIdx = availableTiles.findIndex(t => Math.round(t.x) === x && Math.round(t.y) === y && t.value === this.grid[y][x]);
-                    // 目标位置匹配：方块 target 已就位时也能对上
-                    if (tileIdx === -1) {
-                        tileIdx = availableTiles.findIndex(t => Math.round(t.targetX) === x && Math.round(t.targetY) === y && t.value === this.grid[y][x]);
+            const n = this.gridSize;
+            // 构建位置→tile 索引 Map，避免 findIndex 的 O(n) 线性扫描
+            const exactMap = new Map();   // key: "x,y,value" → tile
+            const targetMap = new Map();  // key: "tx,ty,value" → tile
+            const used = new Set();
+            for (const t of this.tiles) {
+                const ek = Math.round(t.x) + ',' + Math.round(t.y) + ',' + t.value;
+                if (!exactMap.has(ek)) exactMap.set(ek, t);
+                const tk = Math.round(t.targetX) + ',' + Math.round(t.targetY) + ',' + t.value;
+                if (!targetMap.has(tk)) targetMap.set(tk, t);
+            }
+            for (let x = 0; x < n; x++) {
+                const val = this.grid[y][x];
+                if (val === null) { row.push(null); continue; }
+                const key = x + ',' + y + ',' + val;
+
+                // 精确位置 + 数值匹配（O(1)）
+                let tile = exactMap.get(key);
+                if (tile && !used.has(tile)) { used.add(tile); row.push(tile); continue; }
+
+                // 目标位置匹配：方块 target 已就位时也能对上（O(1)）
+                tile = targetMap.get(key);
+                if (tile && !used.has(tile)) { used.add(tile); row.push(tile); continue; }
+
+                // 同值同行匹配（兜底扫描，罕见路径）
+                for (const t of this.tiles) {
+                    if (!used.has(t) && t.value === val && Math.round(t.y) === y) {
+                        tile = t; break;
                     }
-                    // 同值同行匹配
-                    if (tileIdx === -1) {
-                        tileIdx = availableTiles.findIndex(t => t.value === this.grid[y][x] && Math.round(t.y) === y);
-                    }
-                    if (tileIdx !== -1) {
-                        row.push(availableTiles.splice(tileIdx, 1)[0]);
-                    } else {
-                        // 兜底：创建真实 Tile 并注册，保证合并/绘制/回收走同一引用，
-                        // 避免占位对象与真实方块失去关联导致数值不同步
-                        const tile = new FK.Tile(this.grid[y][x], x, y);
-                        tile.id = `tile_${this.tileIdCounter++}`;
-                        tile.new = false;
-                        tile.scale = 1;
-                        this.tiles.push(tile);
-                        row.push(tile);
-                    }
+                }
+                if (tile) {
+                    used.add(tile);
+                    row.push(tile);
                 } else {
-                    row.push(null);
+                    // 兜底：创建真实 Tile 并注册，保证合并/绘制/回收走同一引用
+                    const newTile = new FK.Tile(val, x, y);
+                    newTile.id = 'tile_' + this.tileIdCounter++;
+                    newTile.new = false;
+                    newTile.scale = 1;
+                    this.tiles.push(newTile);
+                    row.push(newTile);
                 }
             }
             return row;
@@ -895,32 +973,42 @@ const Game2048 = (function () {
 
         getColWithTiles(x) {
             const col = [];
-            const availableTiles = this.tiles.slice();
-            for (let y = 0; y < this.gridSize; y++) {
-                if (this.grid[y][x] !== null) {
-                    // 精确位置 + 数值匹配
-                    let tileIdx = availableTiles.findIndex(t => Math.round(t.x) === x && Math.round(t.y) === y && t.value === this.grid[y][x]);
-                    // 目标位置匹配：方块 target 已就位时也能对上
-                    if (tileIdx === -1) {
-                        tileIdx = availableTiles.findIndex(t => Math.round(t.targetX) === x && Math.round(t.targetY) === y && t.value === this.grid[y][x]);
+            const n = this.gridSize;
+            const exactMap = new Map();
+            const targetMap = new Map();
+            const used = new Set();
+            for (const t of this.tiles) {
+                const ek = Math.round(t.x) + ',' + Math.round(t.y) + ',' + t.value;
+                if (!exactMap.has(ek)) exactMap.set(ek, t);
+                const tk = Math.round(t.targetX) + ',' + Math.round(t.targetY) + ',' + t.value;
+                if (!targetMap.has(tk)) targetMap.set(tk, t);
+            }
+            for (let y = 0; y < n; y++) {
+                const val = this.grid[y][x];
+                if (val === null) { col.push(null); continue; }
+                const key = x + ',' + y + ',' + val;
+
+                let tile = exactMap.get(key);
+                if (tile && !used.has(tile)) { used.add(tile); col.push(tile); continue; }
+
+                tile = targetMap.get(key);
+                if (tile && !used.has(tile)) { used.add(tile); col.push(tile); continue; }
+
+                for (const t of this.tiles) {
+                    if (!used.has(t) && t.value === val && Math.round(t.x) === x) {
+                        tile = t; break;
                     }
-                    // 同值同列匹配
-                    if (tileIdx === -1) {
-                        tileIdx = availableTiles.findIndex(t => t.value === this.grid[y][x] && Math.round(t.x) === x);
-                    }
-                    if (tileIdx !== -1) {
-                        col.push(availableTiles.splice(tileIdx, 1)[0]);
-                    } else {
-                        // 兜底：创建真实 Tile 并注册，保证合并/绘制/回收走同一引用
-                        const tile = new FK.Tile(this.grid[y][x], x, y);
-                        tile.id = `tile_${this.tileIdCounter++}`;
-                        tile.new = false;
-                        tile.scale = 1;
-                        this.tiles.push(tile);
-                        col.push(tile);
-                    }
+                }
+                if (tile) {
+                    used.add(tile);
+                    col.push(tile);
                 } else {
-                    col.push(null);
+                    const newTile = new FK.Tile(val, x, y);
+                    newTile.id = 'tile_' + this.tileIdCounter++;
+                    newTile.new = false;
+                    newTile.scale = 1;
+                    this.tiles.push(newTile);
+                    col.push(newTile);
                 }
             }
             return col;
@@ -939,12 +1027,14 @@ const Game2048 = (function () {
         processLineWithTiles(line, forward) {
             const tiles = line.filter(t => t !== null);
             const result = new Array(this.gridSize).fill(null);
-            const merges = [];
+            const merges = this._mergeReuseArr;
+            merges.length = 0;  // 清空但保留容量
             let moved = false;
             let scoreGained = 0;
 
             if (tiles.length === 0) {
-                return { line: result, moved: false, scoreGained: 0, merges: [] };
+                merges.length = 0;
+                return { line: result, moved: false, scoreGained: 0, merges: merges };
             }
 
             if (forward) {
@@ -1020,7 +1110,7 @@ const Game2048 = (function () {
                 }
             }
 
-            return { line: result, moved, scoreGained, merges };
+            return { line: result, moved, scoreGained, merges: merges };
         }
 
         animateRowWithIds(y, newLine) {
@@ -1169,6 +1259,7 @@ const Game2048 = (function () {
             let lastTime = Date.now();
             let frameErrors = 0;
             const frame = () => {
+                if (this._destroyed) return;  // destroy() 后停止渲染循环
                 const now = Date.now();
                 const dt = Math.min(0.05, (now - lastTime) / 1000);
                 lastTime = now;
@@ -1258,7 +1349,26 @@ const Game2048 = (function () {
         }
 
         destroy() {
+            this._destroyed = true;  // 通知 loop() 停止 requestAnimationFrame
             this.unbindEvents();
+            // 解绑生命周期回调（修复：匿名函数改为具名引用后才能 off）
+            if (this._onHideHandler) {
+                try { wx.offHide(this._onHideHandler); } catch (e) { }
+                this._onHideHandler = null;
+            }
+            if (this._onShowHandler) {
+                try { wx.offShow(this._onShowHandler); } catch (e) { }
+                this._onShowHandler = null;
+            }
+            // 解绑音频中断回调
+            if (this._onAudioInterruptBegin) {
+                try { wx.offAudioInterruptionBegin && wx.offAudioInterruptionBegin(this._onAudioInterruptBegin); } catch (e) { }
+                this._onAudioInterruptBegin = null;
+            }
+            if (this._onAudioInterruptEnd) {
+                try { wx.offAudioInterruptionEnd && wx.offAudioInterruptionEnd(this._onAudioInterruptEnd); } catch (e) { }
+                this._onAudioInterruptEnd = null;
+            }
             this.flushBestScore();
             clearTimeout(this._adLoadTimer);
             clearTimeout(this._adWatchdog);
@@ -1271,6 +1381,11 @@ const Game2048 = (function () {
                 this.rewardedAd.destroy();
                 this.rewardedAd = null;
                 this._rewardedAdInited = false;
+            }
+            // 释放 WebAudio 上下文
+            if (this._webAudioCtx) {
+                try { this._webAudioCtx.close && this._webAudioCtx.close(); } catch (e) { }
+                this._webAudioCtx = null;
             }
         }
 
@@ -1298,6 +1413,11 @@ const Game2048 = (function () {
         }
 
         drawTiles() {
+            // 字体比例查找表（对齐 TikTok 版按数值位数自适应），避免每帧分支判断
+            if (!this._fontRatioTable) {
+                this._fontRatioTable = [0.45, 0.35, 0.28, 0.22];  // <100 / <1000 / <10000 / ≥10000
+                this._fontThresholds = [100, 1000, 10000];
+            }
             for (const tile of this.tiles) {
                 const px = this.boardX + tile.x * (this.tileSize + this.gap);
                 const py = this.boardY + tile.y * (this.tileSize + this.gap);
@@ -1312,13 +1432,13 @@ const Game2048 = (function () {
                 this.ctx.fill();
 
                 this.ctx.fillStyle = color.text;
-                // 字体大小：对齐 TikTok 版按数值位数自适应（cellSize 比例）
-                let baseFont;
-                if (tile.value < 100) baseFont = this.tileSize * 0.45;
-                else if (tile.value < 1000) baseFont = this.tileSize * 0.35;
-                else if (tile.value < 10000) baseFont = this.tileSize * 0.28;
-                else baseFont = this.tileSize * 0.22;
-                const fontSize = Math.max(16, Math.floor(baseFont * tile.scale));
+                // 字体大小：查表替代分支判断
+                let ratioIdx = 0;
+                const v = tile.value;
+                if (v >= this._fontThresholds[2]) ratioIdx = 3;
+                else if (v >= this._fontThresholds[1]) ratioIdx = 2;
+                else if (v >= this._fontThresholds[0]) ratioIdx = 1;
+                const fontSize = Math.max(16, Math.floor(this.tileSize * this._fontRatioTable[ratioIdx] * tile.scale));
                 this.ctx.font = this.getFont('bold', fontSize);
                 this.ctx.textAlign = 'center';
                 this.ctx.textBaseline = 'middle';
@@ -1517,6 +1637,24 @@ Object.assign(Game2048.prototype, FK.special, FK.ads, FK.undo, FK.sound, FK.effe
 
 // 启动游戏
 const canvas = wx.createCanvas();
-const game = new Game2048(canvas);
-
-console.log('start');
+try {
+    const game = new Game2048(canvas);
+    if (typeof GameGlobal !== 'undefined') {
+        GameGlobal.__fk2048 = game;  // 挂载全局以便热更新时可销毁重建
+    }
+    console.log('[FK2048] Game started');
+} catch (err) {
+    console.error('[FK2048] Game initialization failed:', err);
+    // 绘制错误提示，避免白屏无反馈
+    try {
+        const ctx = canvas.getContext('2d');
+        const info = wx.getSystemInfoSync();
+        const dpr = info.pixelRatio || 1;
+        ctx.fillStyle = '#FBF7F0';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#66597A';
+        ctx.font = '24px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('游戏初始化失败，请重启', canvas.width / 2 / dpr, canvas.height / 2 / dpr);
+    } catch (e) { }
+}

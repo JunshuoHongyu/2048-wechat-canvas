@@ -24,11 +24,40 @@
         initSound() {
             this.soundOn = true;
             this._webAudioCtx = null;
+            this._audioInterrupted = false;
             try {
                 const saved = wx.getStorageSync(SOUND_SAVE_KEY);
                 if (saved === false || saved === 0 || saved === '0') this.soundOn = false;
             } catch (e) { }
             this.initWebAudio();
+            this.bindAudioInterruption();
+        },
+
+        // 微信音频中断处理：来电/闹钟时暂停 WebAudio，恢复后 resume
+        bindAudioInterruption() {
+            if (typeof wx !== 'undefined' && typeof wx.onAudioInterruptionBegin === 'function') {
+                this._onAudioInterruptBegin = () => {
+                    this._audioInterrupted = true;
+                    try {
+                        if (this._webAudioCtx && this._webAudioCtx.suspend) {
+                            this._webAudioCtx.suspend();
+                        }
+                    } catch (e) { }
+                };
+                wx.onAudioInterruptionBegin(this._onAudioInterruptBegin);
+            }
+            if (typeof wx !== 'undefined' && typeof wx.onAudioInterruptionEnd === 'function') {
+                this._onAudioInterruptEnd = () => {
+                    this._audioInterrupted = false;
+                    try {
+                        if (this._webAudioCtx && this._webAudioCtx.resume) {
+                            var r = this._webAudioCtx.resume();
+                            if (r && r.catch) r.catch(function () { });
+                        }
+                    } catch (e) { }
+                };
+                wx.onAudioInterruptionEnd(this._onAudioInterruptEnd);
+            }
         },
 
         initWebAudio() {
@@ -88,6 +117,11 @@
                 gain.connect(ctx.destination);
                 osc.start(t0);
                 osc.stop(t0 + dur + 0.06);
+                // 播放结束后断开连接，释放音频节点（修复：节点未 disconnect 导致内存泄漏）
+                osc.onended = () => {
+                    try { osc.disconnect(); } catch (e) { }
+                    try { gain.disconnect(); } catch (e) { }
+                };
             } catch (e) { }
         },
 

@@ -35,6 +35,7 @@
             this._mascotLoaded = true;
             this._catImg = null;
             this._girlImg = null;
+            this._mascotLoadErrors = 0;
 
             // 微信小游戏环境用 wx.createImage，浏览器用 new Image
             const makeImage = (typeof wx !== 'undefined' && wx.createImage)
@@ -43,10 +44,18 @@
 
             const cat = makeImage();
             cat.onload = () => { this._catImg = cat; };
+            cat.onerror = () => {
+                console.warn('[Mascot] CatLogo.png 加载失败');
+                this._mascotLoadErrors++;
+            };
             cat.src = 'images/CatLogo.png';
 
             const girl = makeImage();
             girl.onload = () => { this._girlImg = girl; };
+            girl.onerror = () => {
+                console.warn('[Mascot] MagicGirl.png 加载失败');
+                this._mascotLoadErrors++;
+            };
             girl.src = 'images/MagicGirl.png';
         },
 
@@ -109,7 +118,15 @@
                 const bubbleW = Math.min(this.boardSize * 0.55, 220);
                 const bubbleH = Math.min(girl.h * 0.8, 80);
                 // 位置：魔法少女右侧，留 8px 间隙
-                const bubbleX = girl.cx + girl.w / 2 + 8;
+                let bubbleX = girl.cx + girl.w / 2 + 8;
+                // 右边界溢出保护：右侧空间不足时改放左侧
+                if (bubbleX + bubbleW > this.width - 8) {
+                    bubbleX = girl.cx - girl.w / 2 - 8 - bubbleW;
+                    // 左侧也不够时强制靠右对齐
+                    if (bubbleX < 8) {
+                        bubbleX = Math.max(8, this.width - bubbleW - 8);
+                    }
+                }
                 const bubbleY = girl.cy - bubbleH / 2;
 
                 this._bubbleLayout = {

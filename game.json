@@ -1,5 +1,10 @@
 {
   "deviceOrientation": "portrait",
+  "showStatusBar": false,
   "renderMode": "canvas",
+  "networkTimeout": {
+    "request": 10000,
+    "connectSocket": 10000
+  },
   "plugins": {}
 }
