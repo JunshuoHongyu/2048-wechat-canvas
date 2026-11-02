@@ -31,6 +31,23 @@
             } catch (e) { }
             this.initWebAudio();
             this.bindAudioInterruption();
+            this.initUndoAudio();
+        },
+
+        // 撤销音效使用外部 mp3 文件（魔法音效），通过 InnerAudioContext 播放
+        initUndoAudio() {
+            try {
+                if (typeof wx !== 'undefined' && wx.createInnerAudioContext) {
+                    this._undoAudio = wx.createInnerAudioContext();
+                    this._undoAudio.src = 'audio/undo_magic.mp3';
+                    this._undoAudio.volume = 0.6;
+                    this._undoAudio.onError(function () {
+                        console.warn('[Sound] undo_magic.mp3 加载失败');
+                    });
+                }
+            } catch (e) {
+                this._undoAudio = null;
+            }
         },
 
         // 微信音频中断处理：来电/闹钟时暂停 WebAudio，恢复后 resume
@@ -147,7 +164,17 @@
                     this._tone(740, 0.10, 0.12, 'sine', 988);
                     this._tone(988, 0.14, 0.11, 'sine', 1318, 0.09);
                     break;
-                case 'undo':        // 回撤：柔和下滑
+                case 'undo':        // 回撤：魔法音效 mp3，失败回退合成下滑音
+                    if (this._undoAudio) {
+                        try {
+                            this._undoAudio.stop();
+                            this._undoAudio.seek(0);
+                            this._undoAudio.play();
+                            break;
+                        } catch (e) {
+                            // 回退到 WebAudio 合成音
+                        }
+                    }
                     this._tone(520, 0.16, 0.11, 'sine', 330);
                     break;
                 case 'click':       // 轻触按钮

@@ -268,11 +268,12 @@
             ctx.fillText(sp.text, L.x + L.w / 2, L.y + L.h / 2, L.w - pad * 2);
 
             // ---- 气泡尾巴：两个空心圆环（漫画对话框风格）----
-            // 大环压在框左缘，小环在其左侧，逐级缩小，指向魔法少女
+            // 大环在框左侧留出清晰间隙，小环在其左侧逐级缩小，指向魔法少女
             const tailY = L.tailY;
             const bigR = 10;
             const smallR = 6;
-            const bigX = L.x - 4;
+            const gap = 5;  // 大环与气泡主体的间隙
+            const bigX = L.x - bigR - gap;
             const smallX = bigX - bigR - smallR - 2;
 
             ctx.strokeStyle = FRAME_BROWN;

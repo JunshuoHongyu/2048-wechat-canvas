@@ -155,21 +155,22 @@
 
             for (let i = 0; i < count; i++) {
                 const angle = Math.random() * Math.PI * 2;
-                const r = 3 + Math.random() * 27;
+                const r = 2 + Math.random() * 16;
                 this._lightningParticles.push({
                     x: from.x + Math.cos(angle) * r,
                     y: from.y + Math.sin(angle) * r,
                     dirX: dirX, dirY: dirY,
                     normX: normX, normY: normY,
-                    speed: 300 + Math.random() * 260,
-                    swayAmp: 16 + Math.random() * 36,
+                    speed: 320 + Math.random() * 220,
+                    swayAmp: 14 + Math.random() * 26,
                     swayFreq: 2.5 + Math.random() * 3,
                     phase: Math.random() * Math.PI * 2,
                     life: 0,
-                    maxLife: 0.75 + Math.random() * 0.4,
-                    size: 14 + Math.random() * 20,
+                    maxLife: 0.55 + Math.random() * 0.3,
+                    // 小颗粒气雾：颗粒小、密度高，避免大圆渐变造成的「气泡感」
+                    size: 2.5 + Math.random() * 4.5,
                     color: Math.random() < 0.5 ? LIGHTNING_DEEP : LIGHTNING_CORE,
-                    alpha: 0.89,
+                    alpha: 0.65,
                     type: 'mist'
                 });
             }
@@ -200,7 +201,8 @@
             // 阶段一：气雾喷涌 (0~0.5s)
             if (this._lightningPhase === 0) {
                 this._lightningMistTime += dt;
-                const spawnCount = this._lightningMistTime < 0.12 ? 5 : 3;
+                // 小颗粒气雾：单帧数量加倍以维持密度
+                const spawnCount = this._lightningMistTime < 0.12 ? 12 : 7;
                 this._lightningSpawnMist(spawnCount);
                 if (this._lightningMistTime >= 0.5) {
                     this._lightningPhase = 1;
@@ -296,47 +298,95 @@
             }
         },
 
+        /**
+         * 预渲染三张 64×64 径向渐变光点贴图（离屏 canvas），
+         * drawLightning 用 drawImage 复用，避免每帧每粒子 createRadialGradient 的高频开销
+         * 构建失败时返回 null，调用方回退到旧的渐变路径
+         */
+        _buildLightningSprites() {
+            if (this._lightningSprites !== undefined) return;  // null 表示构建失败，不重试
+            let sprites = null;
+            try {
+                const makeCanvas = (typeof wx !== 'undefined' && wx.createCanvas)
+                    ? () => wx.createCanvas()
+                    : (typeof document !== 'undefined' && document.createElement)
+                        ? () => document.createElement('canvas')
+                        : null;
+                if (makeCanvas) {
+                    sprites = {};
+                    for (const key of [LIGHTNING_CORE, LIGHTNING_DEEP, LIGHTNING_WHITE]) {
+                        const c = makeCanvas();
+                        c.width = 64;
+                        c.height = 64;
+                        const g = c.getContext('2d');
+                        const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+                        grad.addColorStop(0, key);
+                        grad.addColorStop(1, 'rgba(0,0,0,0)');
+                        g.fillStyle = grad;
+                        g.fillRect(0, 0, 64, 64);
+                        sprites[key] = c;
+                    }
+                }
+            } catch (e) {
+                sprites = null;
+            }
+            this._lightningSprites = sprites;
+        },
+
         drawLightning() {
             const hasGlows = this._lightningGlows && this._lightningGlows.length > 0;
             const hasParticles = this._lightningParticles && this._lightningParticles.length > 0;
             if (!hasGlows && !hasParticles) return;
 
             const ctx = this.ctx;
+            this._buildLightningSprites();
+            const sprites = this._lightningSprites;  // null = 贴图不可用，回退渐变路径
 
-            // 绘制光晕（径向渐变模拟柔和发光）
+            // 绘制光晕（优先 drawImage 贴图，回退径向渐变）
             if (hasGlows) {
                 for (const g of this._lightningGlows) {
                     if (g.alpha < 0.01) continue;
-                    const r = Math.max(1, g.size / 2);
-                    const grad = ctx.createRadialGradient(g.x, g.y, 0, g.x, g.y, r);
-                    grad.addColorStop(0, g.color);
-                    grad.addColorStop(1, 'rgba(0,0,0,0)');
+                    const size = g.size;
+                    const sprite = sprites && sprites[g.color];
                     ctx.save();
                     ctx.globalAlpha = Math.max(0, Math.min(1, g.alpha));
-                    ctx.fillStyle = grad;
-                    ctx.beginPath();
-                    ctx.arc(g.x, g.y, r, 0, Math.PI * 2);
-                    ctx.fill();
+                    if (sprite) {
+                        ctx.drawImage(sprite, g.x - size / 2, g.y - size / 2, size, size);
+                    } else {
+                        const r = Math.max(1, size / 2);
+                        const grad = ctx.createRadialGradient(g.x, g.y, 0, g.x, g.y, r);
+                        grad.addColorStop(0, g.color);
+                        grad.addColorStop(1, 'rgba(0,0,0,0)');
+                        ctx.fillStyle = grad;
+                        ctx.beginPath();
+                        ctx.arc(g.x, g.y, r, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
                     ctx.restore();
                 }
             }
 
-            // 绘制粒子（径向渐变圆点，模拟气雾感）
+            // 绘制粒子（优先 drawImage 贴图，回退径向渐变）
             if (hasParticles) {
                 for (const p of this._lightningParticles) {
                     const alpha = p.curAlpha != null ? p.curAlpha : p.alpha;
                     const size = p.curSize != null ? p.curSize : p.size;
                     if (alpha < 0.01) continue;
-                    const r = Math.max(1, size / 2);
-                    const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
-                    grad.addColorStop(0, p.color);
-                    grad.addColorStop(1, 'rgba(0,0,0,0)');
+                    const sprite = sprites && sprites[p.color];
                     ctx.save();
                     ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-                    ctx.fillStyle = grad;
-                    ctx.beginPath();
-                    ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-                    ctx.fill();
+                    if (sprite) {
+                        ctx.drawImage(sprite, p.x - size / 2, p.y - size / 2, size, size);
+                    } else {
+                        const r = Math.max(1, size / 2);
+                        const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, r);
+                        grad.addColorStop(0, p.color);
+                        grad.addColorStop(1, 'rgba(0,0,0,0)');
+                        ctx.fillStyle = grad;
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
                     ctx.restore();
                 }
             }

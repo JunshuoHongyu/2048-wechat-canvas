@@ -69,7 +69,7 @@
         [GameState.IDLE]: [GameState.PLAYING],
         [GameState.PLAYING]: [GameState.ANIMATING, GameState.WON, GameState.GAME_OVER],
         [GameState.ANIMATING]: [GameState.PLAYING, GameState.WON, GameState.GAME_OVER],
-        [GameState.WON]: [GameState.PLAYING, GameState.IDLE],
+        [GameState.WON]: [GameState.PLAYING, GameState.IDLE, GameState.GAME_OVER],
         [GameState.GAME_OVER]: [GameState.IDLE, GameState.PLAYING, GameState.AD_PLAYING],
         [GameState.AD_PLAYING]: [GameState.PLAYING, GameState.GAME_OVER]
     };

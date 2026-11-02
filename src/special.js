@@ -636,9 +636,9 @@
             ctx.globalAlpha = 1;
             this.drawBolt(cx, cy, 18, active ? '#FFF7E6' : '#B7ADA2');
 
-            // 主文案：直接写「特技池」，在按钮矩形内水平居中，窄条时略缩小字号
-            ctx.fillStyle = active ? COLORS.text.brown : '#9C948B';
-            ctx.font = this.getFont('bold', rect.w < 210 ? 16 : 18);
+            // 主文案：「特技池」样式与「后悔」按钮保持一致（bold 18 / 近白）
+            ctx.fillStyle = active ? COLORS.text.light : '#9C948B';
+            ctx.font = this.getFont('bold', 18);
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             ctx.fillText('特技池', rect.x + rect.w / 2, cy);

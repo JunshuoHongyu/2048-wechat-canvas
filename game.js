@@ -375,12 +375,13 @@ const Game2048 = (function () {
                     ctx.stroke();
                 }
 
-                // 主文字（经典 4X4 / 挑战 5X5）：一行，水平居中
+                // 主文字（经典 4X4 / 挑战 5X5）：水平居中；
+                // 有「上次使用」小字时上移留位，没有时垂直居中
                 ctx.fillStyle = COLORS.text.light;
                 ctx.font = this.getFont('bold', 22);
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText(btn.label, r.x + r.w / 2, r.y + r.h / 2 - 8);
+                ctx.fillText(btn.label, r.x + r.w / 2, r.y + r.h / 2 - (isLast ? 8 : 0));
 
                 if (isLast) {
                     // 上次选择的难度打标：第二行，同样水平居中
@@ -505,7 +506,8 @@ const Game2048 = (function () {
         initAd() {
             if (this._adInitialized) return;
             this._adInitialized = true;
-            setTimeout(() => this.loadRewardedAd(), 2000);
+            // 保存定时器句柄，destroy() 时清理，避免销毁后广告实例被复生
+            this._adPrefetchTimer = setTimeout(() => this.loadRewardedAd(), 2000);
         }
 
         // 最高分校验摘要：FNV-1a + 混淆盐值（提高客户端篡改门槛）
@@ -786,7 +788,8 @@ const Game2048 = (function () {
 
         addRandomTile() {
             const n = this.gridSize;
-            if (!this._emptyCellsBuf) {
+            // 缓冲区长度随 gridSize 变化：长度不足时重建（4×4 → 5×5 切换必现）
+            if (!this._emptyCellsBuf || this._emptyCellsBuf.length < n * n) {
                 this._emptyCellsBuf = [];
                 for (let i = 0; i < n * n; i++) this._emptyCellsBuf.push({ x: 0, y: 0 });
             }
@@ -821,7 +824,10 @@ const Game2048 = (function () {
             // 所以必须在移动处理前保存 grid 值
             const prevScore = this.score;
             const prevMoveCount = this.moveCount;
-            if (!this._undoFlatBuf) this._undoFlatBuf = new Array(this.gridSize * this.gridSize);
+            // 缓冲区长度随 gridSize 变化（4×4 → 5×5 切换时重建，否则越界）
+            if (!this._undoFlatBuf || this._undoFlatBuf.length < this.gridSize * this.gridSize) {
+                this._undoFlatBuf = new Array(this.gridSize * this.gridSize);
+            }
             const flatBuf = this._undoFlatBuf;
             const n0 = this.gridSize;
             for (let y = 0; y < n0; y++) {
@@ -1350,6 +1356,10 @@ const Game2048 = (function () {
 
         destroy() {
             this._destroyed = true;  // 通知 loop() 停止 requestAnimationFrame
+            // 清理全局引用，避免热更时旧实例无法被 GC
+            if (typeof GameGlobal !== 'undefined' && GameGlobal.__fk2048 === this) {
+                GameGlobal.__fk2048 = null;
+            }
             this.unbindEvents();
             // 解绑生命周期回调（修复：匿名函数改为具名引用后才能 off）
             if (this._onHideHandler) {
@@ -1370,8 +1380,10 @@ const Game2048 = (function () {
                 this._onAudioInterruptEnd = null;
             }
             this.flushBestScore();
+            clearTimeout(this._adPrefetchTimer);
             clearTimeout(this._adLoadTimer);
             clearTimeout(this._adWatchdog);
+            this._adPrefetchTimer = null;
             this._adLoadTimer = null;
             this._adWatchdog = null;
             if (this.rewardedAd) {
@@ -1386,6 +1398,11 @@ const Game2048 = (function () {
             if (this._webAudioCtx) {
                 try { this._webAudioCtx.close && this._webAudioCtx.close(); } catch (e) { }
                 this._webAudioCtx = null;
+            }
+            // 释放 undo 音效的 InnerAudioContext
+            if (this._undoAudio) {
+                try { this._undoAudio.destroy(); } catch (e) { }
+                this._undoAudio = null;
             }
         }
 
